@@ -53,21 +53,16 @@ void keccak_f(thread ulong *state) {
     }
 }
 
-kernel void hash_kernel(
-    device const uchar *input [[buffer(0)]],
-    device uchar *output [[buffer(1)]],
-    constant uint &inputLength [[buffer(2)]]
-) {
-    thread ulong state[25] = {0};
+void keccak256(device const uchar *input, device uchar *output, constant uint &inputLength) {
     const uint rsize = 136; // 1088 bits (136 bytes) for Keccak-256
-
+    thread ulong state[25] = {0};
     uint i = 0;
     while (i < inputLength) {
         if (i + rsize <= inputLength) {
             for (uint j = 0; j < rsize / 8; j++) {
                 ulong block = 0;
                 for (int k = 0; k < 8; k++) {
-                    block |= (ulong)(input[i + j*8 + k]) << (8 * k);
+                    block |= (ulong)(input[i + j * 8 + k]) << (8 * k);
                 }
                 state[j] ^= block;
             }
@@ -84,7 +79,7 @@ kernel void hash_kernel(
             for (uint j = 0; j < rsize / 8; j++) {
                 ulong block = 0;
                 for (int k = 0; k < 8; k++) {
-                    block |= (ulong)(padded[j*8 + k]) << (8 * k);
+                    block |= (ulong)(padded[j * 8 + k]) << (8 * k);
                 }
                 state[j] ^= block;
             }
@@ -92,9 +87,16 @@ kernel void hash_kernel(
             break;
         }
     }
-
-    // Writing output
+    // Write the output
     for (uint j = 0; j < 32; j++) {
         output[j] = (uchar)((state[j / 8] >> (8 * (j % 8))) & 0xFF);
     }
+}
+
+kernel void hash_kernel(
+    device const uchar *input [[buffer(0)]],
+    device uchar *output [[buffer(1)]],
+    constant uint &inputLength [[buffer(2)]]
+) {
+    keccak256(input, output, inputLength);
 }
