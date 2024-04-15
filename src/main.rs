@@ -7,7 +7,7 @@ fn main() {
     let command_queue = device.new_command_queue();
 
     // Data to hash, matching the Metal shader input requirements
-    let data = b"Hello World!";
+    let data = b"sample data";
 
     // Create a GPU buffer from the data
     let data_buffer = device.new_buffer_with_data(
