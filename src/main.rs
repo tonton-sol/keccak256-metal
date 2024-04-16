@@ -131,6 +131,6 @@ fn main() {
     if hash_cpu == hash_gpu && nonce_cpu == nonce_gpu {
         info!("Success! Hashes match!")
     } else {
-        error!("Fail! Hashes do not match!")
+        error!("Failure! Hashes do not match!")
     }
 }
