@@ -1,89 +1,136 @@
-use metal::{Device, MTLResourceOptions, MTLSize};
-use tiny_keccak::{Hasher, Keccak};
+use logfather::{error, info, trace};
+use metal::{CompileOptions, Device, MTLResourceOptions, MTLSize};
+use solana_sdk::keccak::{hashv, Hash};
+use std::{mem::size_of, slice};
 
-fn main() {
-    // Safely obtain the default GPU device
-    let device = Device::system_default().expect("Failed to find the default system GPU.");
+fn mine_cpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
+    info!("Starting CPU test...",);
+    let mut hash: Hash;
+
+    let difficulty_hash = Hash::new(difficulty);
+
+    trace!("difficulty: {}", difficulty_hash.to_string());
+
+    for nonce in 1_u64.. {
+        hash = hashv(&[input_data, nonce.to_le_bytes().as_slice()]);
+        if hash.le(&difficulty_hash) {
+            trace!("nonce: {}", nonce);
+            trace!("hash: {}", hash);
+            return (hash, nonce);
+        }
+    }
+    panic!("Could not find a valid hash")
+}
+
+fn mine_gpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
+    info!("Starting GPU test...",);
+
+    let difficulty_hash = Hash::new(difficulty);
+
+    trace!("difficulty: {}", difficulty_hash.to_string());
+    let device = Device::system_default().unwrap();
     let command_queue = device.new_command_queue();
 
-    // Data to hash, matching the Metal shader input requirements
-    let data = b"sample data";
+    let source = include_str!("../keccak256_mine.metal");
+    let options = CompileOptions::new();
+    let library = device.new_library_with_source(source, &options).unwrap();
+    let function = library.get_function("mining_kernel", None).unwrap();
+    let pipeline_state = device
+        .new_compute_pipeline_state_with_function(&function)
+        .unwrap();
 
-    // Create a GPU buffer from the data
-    let data_buffer = device.new_buffer_with_data(
-        data.as_ptr() as *const _,
-        data.len() as u64,
+    let input_buffer = device.new_buffer_with_data(
+        input_data.as_ptr() as *const _,
+        input_data.len() as u64,
         MTLResourceOptions::StorageModeShared,
     );
 
-    // Buffer to store the result from GPU
-    let result_hash_buffer = device.new_buffer(
-        32, // Keccak256 hash output size
-        MTLResourceOptions::StorageModeShared,
-    );
-
-    // New: Create a buffer for the input length
-    let input_length = data.len() as u32;
+    let input_length = input_data.len() as u32;
     let input_length_buffer = device.new_buffer_with_data(
         &input_length as *const _ as *const _,
         std::mem::size_of::<u32>() as u64,
         MTLResourceOptions::CPUCacheModeWriteCombined,
     );
 
-    // Load the Metal shader source code
-    let source = include_str!("../keccak256.metal");
-    let options = metal::CompileOptions::new();
-    let library = device.new_library_with_source(source, &options).unwrap();
-    let function = library.get_function("hash_kernel", None).unwrap();
-    let pipeline_state = device
-        .new_compute_pipeline_state_with_function(&function)
-        .unwrap();
+    let difficulty_buffer = device.new_buffer_with_data(
+        difficulty.as_ptr() as *const _,
+        difficulty.len() as u64,
+        MTLResourceOptions::StorageModeShared,
+    );
 
-    // Setup and dispatch the GPU compute job
+    let threads_per_group = 1;
+    let num_threadgroups = 1;
+    let total_threads = threads_per_group * num_threadgroups;
+
+    let output_buffer = device.new_buffer(32, MTLResourceOptions::StorageModeShared);
+    let output_nonce_buffer = device.new_buffer(32, MTLResourceOptions::StorageModeShared);
+    let found_buffer = device.new_buffer(
+        size_of::<bool>() as u64,
+        MTLResourceOptions::StorageModeShared,
+    );
+
+    let total_threads_buffer = device.new_buffer_with_data(
+        &total_threads as *const _ as *const _,
+        std::mem::size_of::<u64>() as u64,
+        MTLResourceOptions::CPUCacheModeWriteCombined,
+    );
+
     let command_buffer = command_queue.new_command_buffer();
     let encoder = command_buffer.new_compute_command_encoder();
     encoder.set_compute_pipeline_state(&pipeline_state);
-    encoder.set_buffer(0, Some(&data_buffer), 0);
-    encoder.set_buffer(1, Some(&result_hash_buffer), 0);
-    encoder.set_buffer(2, Some(&input_length_buffer), 0);
-
-    // Dispatching a single thread group as the work is not size dependent
+    encoder.set_buffer(0, Some(&input_buffer), 0);
+    encoder.set_buffer(1, Some(&output_buffer), 0);
+    encoder.set_buffer(2, Some(&difficulty_buffer), 0);
+    encoder.set_buffer(3, Some(&input_length_buffer), 0);
+    encoder.set_buffer(4, Some(&output_nonce_buffer), 0);
+    encoder.set_buffer(5, Some(&found_buffer), 0);
+    encoder.set_buffer(6, Some(&total_threads_buffer), 0);
     encoder.dispatch_thread_groups(
         MTLSize {
-            width: 1,
+            width: threads_per_group,
             height: 1,
             depth: 1,
         },
         MTLSize {
-            width: 1,
+            width: num_threadgroups,
             height: 1,
             depth: 1,
         },
     );
     encoder.end_encoding();
+
     command_buffer.commit();
     command_buffer.wait_until_completed();
 
-    // Read the result from GPU
-    let gpu_result =
-        unsafe { std::slice::from_raw_parts(result_hash_buffer.contents() as *const u8, 32) };
+    let nonce = unsafe {
+        let ptr = output_nonce_buffer.contents() as *const u64;
+        *ptr
+    };
 
-    // Perform CPU hashing for verification
-    let mut keccak = Keccak::v256();
-    let mut cpu_result = [0u8; 32];
-    keccak.update(data);
-    keccak.finalize(&mut cpu_result);
+    let hash = unsafe { slice::from_raw_parts(output_buffer.contents() as *const u8, 32).to_vec() };
 
-    // Compare GPU and CPU results
-    println!("CPU Hash result: {}", to_hex_string(&cpu_result));
-    println!("GPU Hash result: {}", to_hex_string(&gpu_result));
-    if gpu_result == cpu_result {
-        println!("Success: GPU and CPU results match.");
-    } else {
-        println!("Error: GPU and CPU results do not match.");
-    }
+    let hash_rs = Hash::new(&hash);
+
+    trace!("nonce: {}", nonce);
+    trace!("hash: {}", hash_rs);
+    return (hash_rs, nonce);
 }
 
-fn to_hex_string(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{:02x}", byte)).collect()
+fn main() {
+    let data = b"sample data".as_ref();
+
+    let difficulty = [
+        0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    ]
+    .as_ref();
+
+    let (hash_cpu, nonce_cpu) = mine_cpu(data, difficulty);
+    let (hash_gpu, nonce_gpu) = mine_gpu(data, difficulty);
+
+    if hash_cpu == hash_gpu && nonce_cpu == nonce_gpu {
+        info!("Success! Hashes match!")
+    } else {
+        error!("Fail! Hashes do not match!")
+    }
 }
