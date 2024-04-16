@@ -53,7 +53,7 @@ void keccak_f(thread ulong *state) {
     }
 }
 
-void keccak256(device const uchar *input, device uchar *output, uint inputLength)  {
+void keccak256(thread uchar *localInput, thread uchar *localOutput, uint inputLength)  {
     const uint rsize = 136; // 1088 bits (136 bytes) for Keccak-256
     thread ulong state[25] = {0};
     uint i = 0;
@@ -62,7 +62,7 @@ void keccak256(device const uchar *input, device uchar *output, uint inputLength
             for (uint j = 0; j < rsize / 8; j++) {
                 ulong block = 0;
                 for (int k = 0; k < 8; k++) {
-                    block |= (ulong)(input[i + j * 8 + k]) << (8 * k);
+                    block |= (ulong)(localInput[i + j * 8 + k]) << (8 * k);
                 }
                 state[j] ^= block;
             }
@@ -72,7 +72,7 @@ void keccak256(device const uchar *input, device uchar *output, uint inputLength
             // Handle the last block with padding
             uchar padded[rsize] = {0};
             for (uint j = 0; j < inputLength - i; j++) {
-                padded[j] = input[i + j];
+                padded[j] = localInput[i + j];
             }
             padded[inputLength - i] = 0x01; // Padding start
             padded[rsize - 1] |= 0x80; // Padding end
@@ -89,11 +89,11 @@ void keccak256(device const uchar *input, device uchar *output, uint inputLength
     }
     // Write the output
     for (uint j = 0; j < 32; j++) {
-        output[j] = (uchar)((state[j / 8] >> (8 * (j % 8))) & 0xFF);
+        localOutput[j] = (uchar)((state[j / 8] >> (8 * (j % 8))) & 0xFF);
     }
 }
 
-bool check_hash(device uchar *hash, device uchar *target) {
+bool check_hash(thread uchar *hash, device uchar *target) {
     for (int i = 0; i < 32; i++) {
         if (hash[i] < target[i])
             return true;
@@ -121,15 +121,26 @@ kernel void mining_kernel(
     ulong nonce = globalID; // Use calculated global thread ID as initial nonce
     uint totalLength = *inputLength; // Initial input length without nonce
 
+    thread uchar localOutput[32];
+    thread uchar localInput[144];
+    // Copy the global input to each thread's local input
+    for (uint i = 0; i < *inputLength; i++) {
+        localInput[i] = input[i];
+    }
+
     while (true) {
-        // Convert nonce to little-endian bytes and append it to the input
-        for (int i = 0; i < 8; i++) {
-            input[totalLength + i] = (uchar)((nonce >> (i * 8)) & 0xff);
-        }
+        
+    // Append nonce to local input in little-endian format
+    for (uint i = 0; i < 8; i++) {
+        localInput[*inputLength + i] = (uchar)((nonce >> (i * 8)) & 0xff);
+    }
 
-        keccak256(input, output, totalLength + 8); // Update length for 8 bytes of nonce
+        keccak256(localInput, localOutput, totalLength + 8); // Update length for 8 bytes of nonce
 
-        if (check_hash(output, target)) {
+        if (check_hash(localOutput, target)) {
+            for (int i = 0; i < 32; i++) {
+                output[i] = localOutput[i];  // Only write the output if a valid hash is found
+            }
             *nonceFound = nonce;
             *success = true;
             return;

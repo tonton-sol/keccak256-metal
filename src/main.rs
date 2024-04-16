@@ -58,7 +58,7 @@ fn mine_gpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
         MTLResourceOptions::StorageModeShared,
     );
 
-    let threads_per_group = 1;
+    let threads_per_group = 256;
     let num_threadgroups = 1;
     let total_threads = threads_per_group * num_threadgroups;
 
@@ -117,7 +117,11 @@ fn mine_gpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
 }
 
 fn main() {
-    let data = b"sample data".as_ref();
+    let data = b"sample dafdsfsdfsdfdsfsdfdsfsdfsdfsdfdsfsdfdsfsdfsdfsdfdsfdsfsdfsdfsd
+    dfsdfsdfds
+    fsdfsdfsdfsdfsdfdsfds
+    dsfsdfsdfsdfsdfsdfsdfsdfsdfsdfsdfta"
+        .as_ref();
 
     let difficulty = [
         0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
