@@ -32,9 +32,9 @@ fn mine_gpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
     let difficulty_hash = Hash::new(difficulty);
 
     trace!("difficulty: {}", difficulty_hash.to_string());
+
     let device = Device::system_default().unwrap();
     let command_queue = device.new_command_queue();
-
     let source = include_str!("../keccak256_mine.metal");
     let options = CompileOptions::new();
     let library = device.new_library_with_source(source, &options).unwrap();
@@ -43,38 +43,38 @@ fn mine_gpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
         .new_compute_pipeline_state_with_function(&function)
         .unwrap();
 
+    let input_length = input_data.len() as u32;
+    let threads_per_threadgroup: u64 = pipeline_state.max_total_threads_per_threadgroup();
+    let thread_groups_count: u64 = 8;
+    let global_work_size = threads_per_threadgroup * thread_groups_count;
+
     let input_buffer = device.new_buffer_with_data(
         input_data.as_ptr() as *const _,
         input_data.len() as u64,
         MTLResourceOptions::StorageModeShared,
     );
-
-    let input_length = input_data.len() as u32;
     let input_length_buffer = device.new_buffer_with_data(
         &input_length as *const _ as *const _,
         std::mem::size_of::<u32>() as u64,
         MTLResourceOptions::CPUCacheModeWriteCombined,
     );
-
     let difficulty_buffer = device.new_buffer_with_data(
         difficulty.as_ptr() as *const _,
         difficulty.len() as u64,
         MTLResourceOptions::StorageModeShared,
     );
-
-    let threads_per_group = 256;
-    let num_threadgroups = 1;
-    let total_threads = threads_per_group * num_threadgroups;
-
     let output_buffer = device.new_buffer(32, MTLResourceOptions::StorageModeShared);
-    let output_nonce_buffer = device.new_buffer(32, MTLResourceOptions::StorageModeShared);
+    let output_nonce_buffer = device.new_buffer_with_data(
+        &1_u64 as *const _ as *const _,
+        64,
+        MTLResourceOptions::StorageModeShared,
+    );
     let found_buffer = device.new_buffer(
         size_of::<bool>() as u64,
         MTLResourceOptions::StorageModeShared,
     );
-
-    let total_threads_buffer = device.new_buffer_with_data(
-        &total_threads as *const _ as *const _,
+    let global_work_size_buffer = device.new_buffer_with_data(
+        &global_work_size as *const _ as *const _,
         std::mem::size_of::<u64>() as u64,
         MTLResourceOptions::CPUCacheModeWriteCombined,
     );
@@ -96,15 +96,17 @@ fn mine_gpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
     encoder.set_buffer(3, Some(&input_length_buffer), 0);
     encoder.set_buffer(4, Some(&output_nonce_buffer), 0);
     encoder.set_buffer(5, Some(&found_buffer), 0);
-    encoder.set_buffer(6, Some(&total_threads_buffer), 0);
-    encoder.dispatch_thread_groups(
+    encoder.set_buffer(6, Some(&global_work_size_buffer), 0);
+    encoder.set_buffer(7, Some(&nonces_buffer), 0);
+    encoder.set_buffer(8, Some(&loops_buffer), 0);
+    encoder.dispatch_threads(
         MTLSize {
-            width: threads_per_group,
+            width: global_work_size,
             height: 1,
             depth: 1,
         },
         MTLSize {
-            width: num_threadgroups,
+            width: threads_per_threadgroup,
             height: 1,
             depth: 1,
         },
@@ -158,7 +160,6 @@ fn mine_gpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
 }
 
 fn main() {
-
     let challenge = Keypair::new().pubkey();
     let pubkey = Keypair::new().pubkey();
 
