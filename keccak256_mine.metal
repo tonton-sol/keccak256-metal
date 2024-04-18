@@ -111,7 +111,9 @@ kernel void mining_kernel(
     device ulong *nonceFound [[buffer(4)]], // Buffer to store the found nonce
     device bool *success [[buffer(5)]], // Buffer to store success flag
     constant ulong *globalWorkSize [[buffer(6)]], // Total number of threads
-    constant uint *threadsPerGroup [[buffer(7)]], // Number of threads per threadgroup
+    device ulong *nonces [[buffer(7)]],
+    device ulong *loops [[buffer(8)]],
+    device atomic_bool *foundValidHash [[buffer(9)]],
     uint3 tid [[thread_position_in_grid]], // Metal built-in to get the thread's position in the grid
     uint3 groupId [[threadgroup_position_in_grid]], // Metal built-in to get the threadgroup's position in grid
     uint3 tsize [[threads_per_threadgroup]] // Metal built-in to get the number of threads per threadgroup
@@ -132,6 +134,7 @@ kernel void mining_kernel(
 
     while (true) {
         
+        loops[tid.x] = 1 + loops[tid.x];
         // Append nonce to local input in little-endian format
         for (uint i = 0; i < 8; i++) {
             localInput[*inputLength + i] = (uchar)((nonce >> (i * 8)) & 0xff);
@@ -144,6 +147,8 @@ kernel void mining_kernel(
             for (int i = 0; i < 32; i++) {
                 output[i] = localOutput[i];  // Only write the output if a valid hash is found
             }
+
+            nonces[tid.x] = nonce;
             *nonceFound = nonce;
             *success = true;
             return;
