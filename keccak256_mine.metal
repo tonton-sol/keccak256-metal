@@ -120,9 +120,11 @@ kernel void mining_kernel(
 ) {
     atomic_store_explicit(foundValidHash, false, memory_order_relaxed);
 
-    ulong nonce = globalID; // Use calculated global thread ID as initial nonce
-    uint totalLength = *inputLength; // Initial input length without nonce
+    // thread ulong nonce = 1 + tid.x + tsize.x * groupId.x; // Use calculated global thread ID as initial nonce
+    thread ulong nonce = 1 + tid.x; // Use calculated global thread ID as initial nonce
 
+
+    thread uint totalLength = *inputLength + 8; // Initial input length without nonce
     thread uchar localOutput[32];
     thread uchar localInput[64];
     // thread uchar localInput[188];
@@ -161,10 +163,12 @@ kernel void mining_kernel(
             *success = true;
             return;
         }
+        }
 
         nonce += *globalWorkSize; // Increment nonce by the total number of threads to avoid overlaps
-        if (nonce > 0xFFFFFFFFFFFFFFFF) break; // Prevent overflow and endless loop
-    }
 
-    *success = false; // Indicate that no valid nonce was found
+        if (nonce > 0xFFFFFFFFFFFFFFFF) break; // Prevent overflow and endless loop
+    
+    }
+    *success = false;
 }
