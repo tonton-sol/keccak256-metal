@@ -1,7 +1,11 @@
 use logfather::{error, info, trace};
 use metal::{CompileOptions, Device, MTLResourceOptions, MTLSize};
-use solana_sdk::keccak::{hashv, Hash};
-use std::{mem::size_of, slice};
+use solana_sdk::{
+    keccak::{hashv, Hash},
+    signature::Keypair,
+    signer::Signer,
+};
+use std::{mem::size_of, slice, time::Instant};
 
 fn mine_cpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
     info!("Starting CPU test...",);
@@ -117,11 +121,11 @@ fn mine_gpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
 }
 
 fn main() {
-    let data = b"sample dafdsfsdfsdfdsfsdfdsfsdfsdfsdfdsfsdfdsfsdfsdfsdfdsfdsfsdfsdfsd
-    dfsdfsdfds
-    fsdfsdfsdfsdfsdfdsfds
-    dsfsdfsdfsdfsdfsdfsdfsdfsdfsdfsdfta"
-        .as_ref();
+
+    let challenge = Keypair::new().pubkey();
+    let pubkey = Keypair::new().pubkey();
+
+    let data = [challenge.as_ref(), pubkey.as_ref()].concat();
 
     let difficulty = [
         0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
