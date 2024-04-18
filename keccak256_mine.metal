@@ -134,6 +134,11 @@ kernel void mining_kernel(
 
     while (true) {
         
+        if (atomic_load_explicit(foundValidHash, memory_order_relaxed)) {
+        // If a valid hash has been found, stop the thread
+            return;
+        }
+        
         loops[tid.x] = 1 + loops[tid.x];
         // Append nonce to local input in little-endian format
         for (uint i = 0; i < 8; i++) {
@@ -144,6 +149,9 @@ kernel void mining_kernel(
         keccak256(localInput, localOutput, totalLength); // Update length for 8 bytes of nonce
 
         if (check_hash(localOutput, target)) {
+            bool expected = false;
+            
+            if (atomic_compare_exchange_weak_explicit(foundValidHash, &expected, true, memory_order_relaxed, memory_order_relaxed)) {
             for (int i = 0; i < 32; i++) {
                 output[i] = localOutput[i];  // Only write the output if a valid hash is found
             }
