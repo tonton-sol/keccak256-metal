@@ -78,6 +78,14 @@ fn mine_gpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
         std::mem::size_of::<u64>() as u64,
         MTLResourceOptions::CPUCacheModeWriteCombined,
     );
+    let nonces_buffer = device.new_buffer(
+        (global_work_size as usize * size_of::<u64>()) as u64,
+        MTLResourceOptions::StorageModeShared,
+    );
+    let loops_buffer = device.new_buffer(
+        (global_work_size as usize * size_of::<u64>()) as u64,
+        MTLResourceOptions::StorageModeShared,
+    );
 
     let command_buffer = command_queue.new_command_buffer();
     let encoder = command_buffer.new_compute_command_encoder();
@@ -101,6 +109,7 @@ fn mine_gpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
             depth: 1,
         },
     );
+
     encoder.end_encoding();
 
     command_buffer.commit();
@@ -111,9 +120,37 @@ fn mine_gpu(input_data: &[u8], difficulty: &[u8]) -> (Hash, u64) {
         *ptr
     };
 
+    let found = unsafe {
+        let ptr = found_buffer.contents() as *const bool;
+        *ptr
+    };
+
     let hash = unsafe { slice::from_raw_parts(output_buffer.contents() as *const u8, 32).to_vec() };
 
+    // let nonces = unsafe {
+    //     slice::from_raw_parts(
+    //         nonces_buffer.contents() as *const u64,
+    //         global_work_size as usize,
+    //     )
+    //     .to_vec()
+    // };
+
+    // let loops = unsafe {
+    //     slice::from_raw_parts(
+    //         loops_buffer.contents() as *const u64,
+    //         global_work_size as usize,
+    //     )
+    //     .to_vec()
+    // };
+
+    // warn!("nonces: {:?}", nonces);
+    // warn!("loops: {:?}", loops);
+
     let hash_rs = Hash::new(&hash);
+
+    if !found {
+        error!("Hash not found!")
+    }
 
     trace!("nonce: {}", nonce);
     trace!("hash: {}", hash_rs);
