@@ -133,8 +133,15 @@ fn main() {
     ]
     .as_ref();
 
-    let (hash_cpu, nonce_cpu) = mine_cpu(data, difficulty);
-    let (hash_gpu, nonce_gpu) = mine_gpu(data, difficulty);
+    let start1 = Instant::now();
+    let (hash_cpu, nonce_cpu) = mine_cpu(&data, difficulty);
+    let duration1 = start1.elapsed();
+    info!("CPU: {:?}", duration1);
+
+    let start2 = Instant::now();
+    let (hash_gpu, nonce_gpu) = mine_gpu(&data, difficulty);
+    let duration2 = start2.elapsed();
+    info!("GPU: {:?}", duration2);
 
     if hash_cpu == hash_gpu && nonce_cpu == nonce_gpu {
         info!("Success! Hashes match!")
