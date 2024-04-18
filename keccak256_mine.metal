@@ -118,7 +118,7 @@ kernel void mining_kernel(
     uint3 groupId [[threadgroup_position_in_grid]], // Metal built-in to get the threadgroup's position in grid
     uint3 tsize [[threads_per_threadgroup]] // Metal built-in to get the number of threads per threadgroup
 ) {
-    uint globalID = groupId.x * tsize.x + tid.x; // Calculate global thread ID
+    atomic_store_explicit(foundValidHash, false, memory_order_relaxed);
 
     ulong nonce = globalID; // Use calculated global thread ID as initial nonce
     uint totalLength = *inputLength; // Initial input length without nonce
